@@ -1,40 +1,29 @@
 # Production docker-compose.yml example
-# Copy this file and customize for your VPS
+# Copy this file and customize for your deployment
 
 services:
-  multi-pb:
-    image: ghcr.io/multi-pb/multi-pb:latest
+  multipb:
+    image: ghcr.io/n3-rd/multi-pb:latest
     # Or build from source:
     # build: .
-    container_name: multi-pb
+    container_name: multipb
     restart: unless-stopped
     ports:
-      # Option A: Behind reverse proxy (recommended)
-      # Your proxy routes *.pb.yourdomain.com to this port
-      - "127.0.0.1:8080:8080"
+      # Single port for all instances
+      # Use 127.0.0.1 prefix if behind reverse proxy
+      - "127.0.0.1:25983:25983"
       
-      # Option B: Direct exposure (multi-pb handles SSL)
-      # - "80:8080"
-      # - "443:8443"
+      # Or expose directly (uncomment below, comment above)
+      # - "25983:25983"
     volumes:
-      - /srv/multi-pb/data:/mnt/data
-      - caddy_data:/data
-      - caddy_config:/config
+      # Use absolute path for production
+      - /srv/multipb/data:/var/multipb/data
     environment:
-      # Your domain - tenants will be at {name}.{DOMAIN_NAME}
-      - DOMAIN_NAME=pb.yourdomain.com
+      # External port (must match host port mapping)
+      - MULTIPB_PORT=25983
       
-      # Internal port
-      - HTTP_PORT=8080
-      
-      # Enable if multi-pb handles SSL directly (not behind proxy)
-      - ENABLE_HTTPS=false
-      # - HTTPS_PORT=8443
-      
-      # Required for Let's Encrypt if ENABLE_HTTPS=true
-      - ACME_EMAIL=ssl@yourdomain.com
-      
-      - DATA_DIR=/mnt/data
+      # Data directory inside container
+      - MULTIPB_DATA_DIR=/var/multipb/data
     deploy:
       resources:
         limits:
@@ -44,43 +33,78 @@ services:
           cpus: '1'
           memory: 512M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:25983/_health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 40s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-volumes:
-  caddy_data:
-  caddy_config:
-
-# Example: Using with Traefik
-# Add these labels instead of ports if using Traefik:
-#
-#    labels:
-#      - "traefik.enable=true"
-#      - "traefik.http.routers.multipb.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.pb.yourdomain.com`)"
-#      - "traefik.http.routers.multipb.entrypoints=websecure"
-#      - "traefik.http.routers.multipb.tls.certresolver=letsencrypt"
-#      - "traefik.http.services.multipb.loadbalancer.server.port=8080"
-
-# Example: Using with nginx
+# Example: Using with nginx reverse proxy
+# 
 # Add this to your nginx config:
 #
 #    server {
-#        listen 443 ssl;
-#        server_name *.pb.yourdomain.com;
+#        listen 443 ssl http2;
+#        server_name pb.yourdomain.com;
+#        
+#        ssl_certificate /etc/letsencrypt/live/pb.yourdomain.com/fullchain.pem;
+#        ssl_certificate_key /etc/letsencrypt/live/pb.yourdomain.com/privkey.pem;
 #        
 #        location / {
-#            proxy_pass http://127.0.0.1:8080;
+#            proxy_pass http://localhost:25983;
 #            proxy_set_header Host $host;
 #            proxy_set_header X-Real-IP $remote_addr;
 #            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #            proxy_set_header X-Forwarded-Proto $scheme;
 #        }
 #    }
+#
+# Access instances at: https://pb.yourdomain.com/{instance}/
+
+# Example: Using with Caddy reverse proxy
+#
+# Add this to your Caddyfile:
+#
+#    pb.yourdomain.com {
+#        reverse_proxy localhost:25983
+#    }
+#
+# Access instances at: https://pb.yourdomain.com/{instance}/
+
+# Example: Subdomain routing with nginx
+#
+# For subdomain-based access (myapp.pb.yourdomain.com):
+#
+#    server {
+#        listen 443 ssl http2;
+#        server_name ~^(?<instance>.+)\.pb\.yourdomain\.com$;
+#        
+#        ssl_certificate /etc/letsencrypt/live/pb.yourdomain.com/fullchain.pem;
+#        ssl_certificate_key /etc/letsencrypt/live/pb.yourdomain.com/privkey.pem;
+#        
+#        location / {
+#            proxy_pass http://localhost:25983/$instance/;
+#            proxy_set_header Host $host;
+#            proxy_set_header X-Real-IP $remote_addr;
+#        }
+#    }
+#
+# Requires wildcard DNS: *.pb.yourdomain.com A <your-ip>
+
+# Example: Using with Traefik
+#
+# Add these labels to the service above:
+#
+#    labels:
+#      - "traefik.enable=true"
+#      - "traefik.http.routers.multipb.rule=Host(`pb.yourdomain.com`)"
+#      - "traefik.http.routers.multipb.entrypoints=websecure"
+#      - "traefik.http.routers.multipb.tls.certresolver=letsencrypt"
+#      - "traefik.http.services.multipb.loadbalancer.server.port=25983"
+#
+# Access instances at: https://pb.yourdomain.com/{instance}/

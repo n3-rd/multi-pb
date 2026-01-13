@@ -1,2 +1,19 @@
+# Data directories
 pb_data/
-data
+data/
+multipb-data/
+
+# Test data
+test-data/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

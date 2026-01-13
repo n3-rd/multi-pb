@@ -1,6 +1,0 @@
-{
-    email {{ACME_EMAIL}}
-    storage file_system {
-        root /data
-    }
-}
