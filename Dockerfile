@@ -1,81 +1,78 @@
-# Stage 1: Build the Go management server
-FROM golang:1.24-alpine AS go-builder
+# Multi-stage build for PocketBase Multi-Instance Container
+FROM alpine:3.19
 
-WORKDIR /build
-
-# Install git for go mod
-RUN apk add --no-cache git
-
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source
-COPY cmd/ cmd/
-COPY internal/ internal/
-
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o multipb ./cmd/multipb
-
-# Stage 2: Build the frontend
-FROM node:22-alpine AS frontend-builder
-
-WORKDIR /app
-
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-# Copy package files first for better caching
-COPY multi-frontend/package.json multi-frontend/pnpm-lock.yaml multi-frontend/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-
-# Copy source files explicitly to avoid conflicts with node_modules symlinks
-COPY multi-frontend/src ./src
-COPY multi-frontend/static ./static
-COPY multi-frontend/svelte.config.js multi-frontend/vite.config.ts multi-frontend/tsconfig.json ./
-COPY multi-frontend/.prettierrc multi-frontend/.npmrc multi-frontend/eslint.config.js ./
-RUN pnpm build
-
-# Stage 3: Runtime
-FROM alpine:latest
-
-# Install dependencies
+# Install runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
     curl \
     bash \
-    caddy
+    unzip \
+    supervisor \
+    jq
 
-# Download PocketBase
+# Install Caddy
+RUN apk add --no-cache caddy --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community
+
+# Download PocketBase binary (detect architecture)
 ARG PB_VERSION=0.23.4
-RUN curl -fsSL "https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_amd64.zip" \
-    -o /tmp/pocketbase.zip \
-    && unzip /tmp/pocketbase.zip -d /tmp \
-    && mv /tmp/pocketbase /usr/local/bin/pocketbase \
-    && chmod +x /usr/local/bin/pocketbase \
-    && rm -rf /tmp/*
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+        x86_64) ARCH_NAME="amd64" ;; \
+        aarch64) ARCH_NAME="arm64" ;; \
+        armv7l) ARCH_NAME="armv7" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    echo "Downloading PocketBase for $ARCH_NAME..." && \
+    curl -fsSL "https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_${ARCH_NAME}.zip" \
+    -o /tmp/pocketbase.zip && \
+    unzip /tmp/pocketbase.zip -d /tmp && \
+    mv /tmp/pocketbase /usr/local/bin/pocketbase && \
+    chmod +x /usr/local/bin/pocketbase && \
+    rm -rf /tmp/*
 
-# Create directories
-RUN mkdir -p /mnt/data /var/log/multipb /app/dashboard
+# Create application directories
+RUN mkdir -p /var/multipb/data \
+    /var/multipb/scripts \
+    /var/log/supervisor \
+    /etc/supervisor/conf.d
 
-# Copy Go binary
-COPY --from=go-builder /build/multipb /usr/local/bin/multipb
+# Copy management scripts
+COPY scripts/entrypoint.sh /var/multipb/scripts/
+COPY scripts/add-instance.sh /var/multipb/scripts/
+COPY scripts/remove-instance.sh /var/multipb/scripts/
+COPY scripts/list-instances.sh /var/multipb/scripts/
+COPY scripts/start-instance.sh /var/multipb/scripts/
+COPY scripts/stop-instance.sh /var/multipb/scripts/
+COPY scripts/reload-proxy.sh /var/multipb/scripts/
+COPY scripts/generate-caddy-config.sh /var/multipb/scripts/
+COPY scripts/generate-supervisor-config.sh /var/multipb/scripts/
 
-# Copy built frontend to be served by the Go server
-COPY --from=frontend-builder /app/build /app/dashboard
+# Make scripts executable
+RUN chmod +x /var/multipb/scripts/*.sh
 
-# Copy entrypoint
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy configuration templates
+COPY templates/Caddyfile.template /var/multipb/templates/
+COPY templates/supervisord.conf.template /var/multipb/templates/
+COPY templates/instance.conf.template /var/multipb/templates/
+
+# Create symlinks for easy access
+RUN ln -s /var/multipb/scripts/add-instance.sh /usr/local/bin/add-instance.sh && \
+    ln -s /var/multipb/scripts/remove-instance.sh /usr/local/bin/remove-instance.sh && \
+    ln -s /var/multipb/scripts/list-instances.sh /usr/local/bin/list-instances.sh && \
+    ln -s /var/multipb/scripts/start-instance.sh /usr/local/bin/start-instance.sh && \
+    ln -s /var/multipb/scripts/stop-instance.sh /usr/local/bin/stop-instance.sh
 
 # Environment defaults
-ENV DATA_DIR=/mnt/data \
-    HTTP_PORT=8080 \
-    HTTPS_PORT=8443 \
-    DOMAIN_NAME=localhost.direct \
-    ENABLE_HTTPS=false \
-    ACME_EMAIL=admin@example.com
+ENV MULTIPB_PORT=25983 \
+    MULTIPB_DATA_DIR=/var/multipb/data
 
-EXPOSE 8080 8443
+# Expose only the single external port
+EXPOSE ${MULTIPB_PORT}
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Health check - ping internal health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:${MULTIPB_PORT}/_health || exit 1
+
+WORKDIR /var/multipb
+
+ENTRYPOINT ["/var/multipb/scripts/entrypoint.sh"]

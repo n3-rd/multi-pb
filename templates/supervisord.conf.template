@@ -1,0 +1,2 @@
+# This template is generated dynamically by generate-supervisor-config.sh
+# Edit that script to modify the supervisord configuration

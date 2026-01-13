@@ -1,36 +1,23 @@
-# Development docker-compose.yml
-# For production, use install.sh to generate a customized configuration
+# Multi-PB Docker Compose Configuration
+# Single-container multi-instance PocketBase manager
 
 services:
-  multi-pb:
+  multipb:
     build: .
-    container_name: multi-pb
+    container_name: multipb
     restart: unless-stopped
     ports:
-      # Dashboard/API on port 8080
-      - "8080:8080"
-      # Caddy for tenant subdomains on port 80
-      # Access tenants via http://tenant.localhost.direct
-      - "80:80"
+      # Single external port for all instances
+      - "${MULTIPB_PORT:-25983}:${MULTIPB_PORT:-25983}"
     volumes:
-      - ./pb_data:/mnt/data
-      - caddy_data:/data
-      - caddy_config:/config
+      # Single volume for all instance data
+      - multipb-data:/var/multipb/data
     environment:
-      # Domain for tenant subdomains (e.g., tenant.localhost.direct)
-      - DOMAIN_NAME=localhost.direct
+      # External port (default: 25983, can be configured)
+      - MULTIPB_PORT=${MULTIPB_PORT:-25983}
       
-      # Port the internal server listens on
-      - HTTP_PORT=8080
-      
-      # Set to true to enable HTTPS with Let's Encrypt
-      - ENABLE_HTTPS=false
-      
-      # Email for Let's Encrypt certificates (required if ENABLE_HTTPS=true)
-      - ACME_EMAIL=admin@example.com
-      
-      # Data directory inside the container
-      - DATA_DIR=/mnt/data
+      # Data directory inside container
+      - MULTIPB_DATA_DIR=/var/multipb/data
     deploy:
       resources:
         limits:
@@ -40,12 +27,11 @@ services:
           cpus: '0.5'
           memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${MULTIPB_PORT:-25983}/_health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 40s
 
 volumes:
-  caddy_data:
-  caddy_config:
+  multipb-data:
