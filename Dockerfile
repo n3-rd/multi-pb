@@ -71,11 +71,13 @@ ENV MULTIPB_PORT=25983 \
     MULTIPB_DATA_DIR=/var/multipb/data
 
 # Expose only the single external port
-EXPOSE ${MULTIPB_PORT}
+# Note: Using literal port value since ENV expansion doesn't work in EXPOSE
+EXPOSE 25983
 
 # Health check - ping internal health endpoint
+# Using sh -c to properly expand environment variable at runtime
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${MULTIPB_PORT}/_health || exit 1
+    CMD sh -c 'curl -f http://localhost:${MULTIPB_PORT}/_health || exit 1'
 
 WORKDIR /var/multipb
 

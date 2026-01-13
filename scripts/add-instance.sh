@@ -71,14 +71,25 @@ fi
 # Start from 30000 and find the first unused port
 START_PORT=30000
 MAX_PORT=39999
+
+# Get all used ports sorted
 USED_PORTS=$(jq -r '.instances[] | .port' "$MANIFEST_PATH" 2>/dev/null | sort -n || echo "")
 
+# Find first available port
 NEXT_PORT=$START_PORT
-for used_port in $USED_PORTS; do
-    if [ "$NEXT_PORT" -eq "$used_port" ]; then
-        NEXT_PORT=$((NEXT_PORT + 1))
-    fi
-done
+if [ -n "$USED_PORTS" ]; then
+    # Check each potential port starting from START_PORT
+    while [ "$NEXT_PORT" -le "$MAX_PORT" ]; do
+        # Check if this port is in use
+        if echo "$USED_PORTS" | grep -q "^${NEXT_PORT}$"; then
+            # Port is in use, try next
+            NEXT_PORT=$((NEXT_PORT + 1))
+        else
+            # Found available port
+            break
+        fi
+    done
+fi
 
 if [ "$NEXT_PORT" -gt "$MAX_PORT" ]; then
     echo "Error: No available ports (max instances reached)"

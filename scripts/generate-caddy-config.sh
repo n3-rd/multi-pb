@@ -11,8 +11,8 @@ CADDY_CONFIG="/etc/caddy/Caddyfile"
 # Ensure Caddy directory exists
 mkdir -p /etc/caddy
 
-# Start Caddyfile
-cat > "$CADDY_CONFIG" << 'EOF'
+# Start Caddyfile with proper variable expansion
+cat > "$CADDY_CONFIG" << EOF
 {
     auto_https off
     admin off
@@ -31,7 +31,7 @@ cat > "$CADDY_CONFIG" << 'EOF'
             hide instances.json
         }
         header Content-Type application/json
-        respond `{"status":"ok","data_dir":"${MULTIPB_DATA_DIR}"}`
+        respond \`{"status":"ok","data_dir":"${MULTIPB_DATA_DIR}"}\`
     }
 
 EOF
