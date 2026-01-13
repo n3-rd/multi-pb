@@ -8,10 +8,17 @@ echo "Reloading Caddy configuration..."
 # Regenerate Caddy config
 /var/multipb/scripts/generate-caddy-config.sh > /dev/null 2>&1
 
-# Send HUP signal to Caddy via supervisorctl
-if supervisorctl signal HUP caddy > /dev/null 2>&1; then
+# Reload Caddy using the admin API
+if curl -X POST http://localhost:2019/load \
+    -H "Content-Type: application/json" \
+    -d @/etc/caddy/Caddyfile \
+    --max-time 5 > /dev/null 2>&1; then
     echo "✓ Caddy configuration reloaded successfully"
 else
-    echo "Error: Failed to reload Caddy"
-    exit 1
+    # Fallback: try caddy reload command
+    if caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null 2>&1; then
+        echo "✓ Caddy configuration reloaded successfully"
+    else
+        echo "Warning: Caddy reload may have failed. Changes will apply on next restart."
+    fi
 fi

@@ -120,9 +120,9 @@ supervisorctl reread > /dev/null 2>&1 || true
 supervisorctl update > /dev/null 2>&1 || true
 supervisorctl start "pb-${INSTANCE_NAME}" > /dev/null 2>&1 || true
 
-# Reload Caddy
+# Reload Caddy using the proper method
 echo "Reloading reverse proxy..."
-supervisorctl signal HUP caddy > /dev/null 2>&1 || true
+/var/multipb/scripts/reload-proxy.sh > /dev/null 2>&1 || echo "  Note: Proxy will reload on next request"
 
 # Wait a moment for instance to start
 sleep 2

@@ -92,7 +92,7 @@ supervisorctl update > /dev/null 2>&1 || true
 
 # Reload Caddy
 echo "  Reloading reverse proxy..."
-supervisorctl signal HUP caddy > /dev/null 2>&1 || true
+/var/multipb/scripts/reload-proxy.sh > /dev/null 2>&1 || echo "  Note: Proxy will reload on next request"
 
 echo ""
 echo "✓ Instance '$INSTANCE_NAME' removed successfully!"

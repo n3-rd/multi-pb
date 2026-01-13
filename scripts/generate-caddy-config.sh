@@ -15,7 +15,7 @@ mkdir -p /etc/caddy
 cat > "$CADDY_CONFIG" << EOF
 {
     auto_https off
-    admin off
+    admin localhost:2019
 }
 
 :${MULTIPB_PORT} {
