@@ -1,18 +1,3 @@
-# Dependencies
-node_modules/
-**/node_modules/
-
-# Build outputs
-.svelte-kit/
-**/.svelte-kit/
-build/
-**/build/
-dist/
-
-# Data directories
-data/
-pb_data/
-
 # Git
 .git/
 .gitignore
@@ -22,7 +7,34 @@ pb_data/
 .idea/
 *.swp
 
-# Misc
+# Data directories
+data/
+pb_data/
+multipb-data/
+
+# Docker files (don't copy into build context unnecessarily)
+docker-compose*.yml
+
+# Documentation (not needed in container, except README for reference)
+PRODUCTION.md
+LICENSE
+
+# Old Go source code (not needed anymore)
+cmd/
+internal/
+go.mod
+go.sum
+
+# Old frontend (not needed anymore)
+multi-frontend/
+
+# Installation script (not needed in container)
+install.sh
+
+# Environment example (not needed in container)
+env.example
+
+# Logs
 *.log
-*.md
-!README.md
+
+

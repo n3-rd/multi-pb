@@ -1,14 +1,18 @@
 # Multi-stage build for PocketBase Multi-Instance Container
-FROM alpine:3.19
+FROM alpine:latest
 
 # Install runtime dependencies
+# Install from edge/testing for supervisor
 RUN apk add --no-cache \
     ca-certificates \
     curl \
     bash \
     unzip \
+    jq \
+    --repository=http://dl-cdn.alpinelinux.org/alpine/edge/main && \
+    apk add --no-cache \
     supervisor \
-    jq
+    --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing
 
 # Install Caddy
 RUN apk add --no-cache caddy --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community
