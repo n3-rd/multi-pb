@@ -68,9 +68,16 @@ Returns a list of all configured instances.
   "name": "myapp",
   "email": "admin@example.com",
   "password": "secret",
-  "memory": "512MB"
+  "memory": "512MB",
+  "sizeLimit": "500MB",
+  "version": "0.23.4"
 }
 ```
+
+### Update Instance Settings
+
+`PATCH /instances/:name/settings`
+Body: `{ "sizeLimit": "500MB", "memory": "512MB" }` (both optional). Updates per-instance settings. Changing memory restarts the instance.
 
 ### Get Instance Details
 

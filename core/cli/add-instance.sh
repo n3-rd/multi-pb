@@ -15,6 +15,7 @@ ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 CUSTOM_PORT=""
 MEMORY_LIMIT=""
+SIZE_LIMIT=""
 VERSION=""
 
 while [ $# -gt 0 ]; do
@@ -35,6 +36,10 @@ while [ $# -gt 0 ]; do
             MEMORY_LIMIT="$2"
             shift 2
             ;;
+        --size-limit)
+            SIZE_LIMIT="$2"
+            shift 2
+            ;;
         --version)
             VERSION="$2"
             shift 2
@@ -49,7 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$INSTANCE_NAME" ]; then
-    echo "Usage: add-instance.sh <name> [--email <admin_email>] [--password <admin_password>] [--port <port>] [--memory <limit>] [--version <version>]"
+    echo "Usage: add-instance.sh <name> [--email <admin_email>] [--password <admin_password>] [--port <port>] [--memory <limit>] [--size-limit <limit>] [--version <version>]"
     exit 1
 fi
 
@@ -208,13 +213,15 @@ fi
 # 4. Add to manifest using jq if available
 if command -v jq >/dev/null 2>&1; then
     TMP_FILE=$(mktemp)
-    jq --arg name "$INSTANCE_NAME" --argjson port "$NEXT_PORT" --arg mem "$MEMORY_LIMIT" --arg ver "$VERSION" \
-        '.[$name] = {"port": $port, "status": "running", "created": (now | strftime("%Y-%m-%dT%H:%M:%SZ")), "memory": $mem, "version": $ver}' \
+    jq --arg name "$INSTANCE_NAME" --argjson port "$NEXT_PORT" --arg mem "$MEMORY_LIMIT" --arg sz "$SIZE_LIMIT" --arg ver "$VERSION" \
+        '.[$name] = ({"port": $port, "status": "running", "created": (now | strftime("%Y-%m-%dT%H:%M:%SZ")), "memory": $mem, "version": $ver} + (if $sz != "" then {"sizeLimit": $sz} else {} end))' \
         "$MANIFEST_FILE" > "$TMP_FILE"
     mv "$TMP_FILE" "$MANIFEST_FILE"
 else
     # Fallback: simple JSON manipulation
-    sed -i "s/{}$/{\n  \"$INSTANCE_NAME\": {\"port\": $NEXT_PORT, \"status\": \"running\", \"created\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"memory\": \"$MEMORY_LIMIT\", \"version\": \"$VERSION\"}\n}/" "$MANIFEST_FILE"
+    SIZE_JSON=""
+    [ -n "$SIZE_LIMIT" ] && SIZE_JSON=", \"sizeLimit\": \"$SIZE_LIMIT\""
+    sed -i "s/{}$/{\n  \"$INSTANCE_NAME\": {\"port\": $NEXT_PORT, \"status\": \"running\", \"created\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"memory\": \"$MEMORY_LIMIT\"$SIZE_JSON, \"version\": \"$VERSION\"}\n}/" "$MANIFEST_FILE"
 fi
 
 echo "Instance '$INSTANCE_NAME' added to manifest with port $NEXT_PORT"

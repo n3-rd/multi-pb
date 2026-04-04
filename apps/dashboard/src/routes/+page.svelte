@@ -2,12 +2,14 @@
     import { onMount } from "svelte";
     import { apiFetch, needsAuthModal } from "$lib/api";
 
-    interface Instance {
+        interface Instance {
         name: string;
         port: number;
         status: string;
         healthy?: boolean;
         size?: string;
+        sizeLimit?: string;
+        overQuota?: boolean;
         created?: string;
         version?: string;
     }
@@ -37,6 +39,7 @@
     let customPort = "";
     let customEmail = "";
     let customPassword = "";
+    let customSizeLimit = "";
     let portError = "";
     let portChecking = false;
     let selectedVersion = "";
@@ -150,6 +153,7 @@
                 email: customEmail ? customEmail.trim() : undefined,
                 password: customPassword || undefined,
                 version: selectedVersion || undefined,
+                sizeLimit: customSizeLimit.trim() || undefined,
             };
 
             const res = await apiFetch("/instances", {
@@ -173,6 +177,7 @@
             customPort = "";
             customEmail = "";
             customPassword = "";
+            customSizeLimit = "";
             showAdvanced = false;
             portError = "";
             await fetchInstances();
@@ -547,8 +552,15 @@
                                         </span>
                                     </td>
                                     <td class="px-6 py-4 text-sm text-gray-400"
-                                        >{instance.size || "-"}</td
-                                    >
+                                        >
+                                            <span class={instance.overQuota ? "text-orange-400" : ""}>{instance.size || "-"}</span>
+                                            {#if instance.sizeLimit}
+                                                <span class="text-gray-600 text-xs ml-1">/ {instance.sizeLimit}</span>
+                                            {/if}
+                                            {#if instance.overQuota}
+                                                <span class="ml-1 text-xs px-1.5 py-0.5 bg-orange-500/20 text-orange-400 rounded">Over limit</span>
+                                            {/if}
+                                        </td>
                                     {#if instances.some((i) => i.created)}
                                         <td
                                             class="px-6 py-4 text-sm text-gray-500"
@@ -787,6 +799,22 @@
                             <p class="text-xs text-gray-600 mt-1">
                                 Min 8 characters recommended
                             </p>
+                        </div>
+
+                        <div class="pl-4">
+                            <label
+                                for="custom-size-limit"
+                                class="block text-xs font-medium text-gray-500 uppercase mb-2"
+                                >Database Size Limit</label
+                            >
+                            <input
+                                id="custom-size-limit"
+                                type="text"
+                                bind:value={customSizeLimit}
+                                placeholder="e.g. 500MB, 1GB (optional)"
+                                class="w-full bg-[#0a0a0a] border border-gray-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-emerald-500/50 transition-all text-white placeholder-gray-600 text-sm"
+                            />
+                            <p class="text-xs text-gray-600 mt-1">Optional. Alerts when exceeded.</p>
                         </div>
 
                         <div class="pl-4">

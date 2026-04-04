@@ -21,6 +21,7 @@ const VERSIONS_DIR = "/var/multipb/data/versions";
 let config = {};
 let healthHistory = {};
 let lastHealthStatus = {}; // store last status to detect changes
+let lastOverQuota = {}; // store last over-quota state for notifications
 let adminToken = null; // Admin token for API authorization
 
 async function loadConfig() {
@@ -184,6 +185,23 @@ async function monitorLoop() {
         }
       }
       lastHealthStatus[name] = isHealthy;
+
+      // 3. Size limit check (when sizeLimit is set)
+      const sizeLimit = data.sizeLimit;
+      if (sizeLimit) {
+        const instanceDir = path.join(DATA_DIR, name);
+        const sizeBytes = await getDirSizeBytes(instanceDir);
+        const limitBytes = parseSizeToBytes(sizeLimit);
+        const overQuota = limitBytes != null && limitBytes > 0 && sizeBytes > limitBytes;
+        if (overQuota && !lastOverQuota[name]) {
+          console.log(`[Monitor] ${name} exceeded size limit (${sizeLimit})`);
+          sendNotification(
+            `Instance **${name}** exceeded size limit (${sizeLimit}). Current: ${formatBytes(sizeBytes)}.`,
+            "ALERT",
+          );
+        }
+        lastOverQuota[name] = overQuota;
+      }
     }
 
     await saveHistory();
@@ -223,6 +241,31 @@ async function getDirSize(directory) {
   } catch (e) {
     return "0B";
   }
+}
+
+async function getDirSizeBytes(directory) {
+  try {
+    const { stdout } = await execAsync(
+      `du -sb "${directory}" 2>/dev/null | cut -f1`,
+    );
+    return parseInt(stdout.trim(), 10) || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// Parse human size like "512MB", "1GB", "1GiB" to bytes
+function parseSizeToBytes(str) {
+  if (!str || typeof str !== "string") return null;
+  const m = str.trim().match(/^(\d+(?:\.\d+)?)\s*([KMGTP]?)(i?)[B]?$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const unit = (m[2] || "B").toUpperCase();
+  const binary = (m[3] || "").toLowerCase() === "i";
+  const k = binary ? 1024 : 1000;
+  const units = { B: 0, K: 1, M: 2, G: 3, T: 4, P: 5 };
+  const exp = units[unit] ?? 0;
+  return Math.floor(n * Math.pow(k, exp));
 }
 
 async function getSystemStats() {
@@ -500,10 +543,17 @@ function formatBytes(bytes) {
 }
 
 // Get instance details including collections count
-async function getInstanceDetails(name, port) {
+async function getInstanceDetails(name, instanceData) {
+  const port = typeof instanceData === "object" ? instanceData.port : instanceData;
+  const sizeLimit = typeof instanceData === "object" ? instanceData.sizeLimit : null;
+
   const instanceDir = path.join(DATA_DIR, name);
   const size = await getDirSize(instanceDir);
+  const sizeBytes = await getDirSizeBytes(instanceDir);
   const health = await getInstanceHealth(port);
+
+  const limitBytes = sizeLimit ? parseSizeToBytes(sizeLimit) : null;
+  const overQuota = limitBytes != null && limitBytes > 0 && sizeBytes > limitBytes;
 
   // Count files in pb_data
   let recordsEstimate = 0;
@@ -513,11 +563,15 @@ async function getInstanceDetails(name, port) {
     recordsEstimate = Math.floor(stat.size / 1024); // rough estimate
   } catch (e) { }
 
-  return {
+  const result = {
     size,
+    sizeBytes,
     healthy: health !== null,
     healthData: health,
   };
+  if (sizeLimit) result.sizeLimit = sizeLimit;
+  if (overQuota) result.overQuota = true;
+  return result;
 }
 
 // Parse request body
@@ -659,7 +713,7 @@ const server = http.createServer(async (req, res) => {
       const manifest = await readManifest();
       const instances = await Promise.all(
         Object.entries(manifest).map(async ([name, data]) => {
-          const details = await getInstanceDetails(name, data.port);
+          const details = await getInstanceDetails(name, data);
           return {
             name,
             port: data.port,
@@ -704,7 +758,7 @@ const server = http.createServer(async (req, res) => {
 
     // POST /api/instances
     if (pathname === "/api/instances" && req.method === "POST") {
-      const { name, email, password, port, memory, version } = await parseBody(req);
+      const { name, email, password, port, memory, version, sizeLimit } = await parseBody(req);
       if (!name) return sendJson(400, { error: "Instance name required" });
 
       // Validate port if provided
@@ -731,6 +785,7 @@ const server = http.createServer(async (req, res) => {
       if (port) args.push("--port", port.toString());
       if (memory) args.push("--memory", memory);
       if (version) args.push("--version", version);
+      if (sizeLimit) args.push("--size-limit", sizeLimit);
 
       const result = await execScript("add-instance.sh", args);
       if (result.success) {
@@ -789,7 +844,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(404, { error: "Instance not found" });
 
       const data = manifest[name];
-      const details = await getInstanceDetails(name, data.port);
+      const details = await getInstanceDetails(name, data);
       const backups = await listBackups(name);
       const history = healthHistory[name] || [];
 
@@ -799,10 +854,85 @@ const server = http.createServer(async (req, res) => {
         status: data.status,
         created: data.created,
         version: data.version || null,
+        memory: data.memory || null,
         ...details,
         backups,
         history,
       });
+    }
+
+    // PATCH /api/instances/:name/settings
+    const settingsMatch = pathname.match(
+      /^\/api\/instances\/([^\/]+)\/settings$/,
+    );
+    if (settingsMatch && req.method === "PATCH") {
+      const name = settingsMatch[1];
+      const body = await parseBody(req);
+      const manifest = await readManifest();
+      if (!manifest[name])
+        return sendJson(404, { error: "Instance not found" });
+
+      let updated = false;
+      if (body.sizeLimit !== undefined) {
+        if (body.sizeLimit === "" || body.sizeLimit == null) {
+          delete manifest[name].sizeLimit;
+        } else {
+          manifest[name].sizeLimit = String(body.sizeLimit);
+        }
+        updated = true;
+      }
+      if (body.memory !== undefined) {
+        if (body.memory === "" || body.memory == null) {
+          delete manifest[name].memory;
+        } else {
+          manifest[name].memory = String(body.memory);
+        }
+        updated = true;
+      }
+      if (!updated) return sendJson(400, { error: "No valid settings to update" });
+
+      await writeManifest(manifest);
+
+      // If memory changed, regenerate supervisord config and restart
+      if (body.memory !== undefined) {
+        try {
+          const instanceDir = path.join(DATA_DIR, name);
+          const instanceData = manifest[name];
+          const { stdout: binaryPath } = await execAsync(
+            `/usr/local/bin/manage-versions.sh path ${instanceData.version || "latest"}`,
+          );
+          const pbBinary = binaryPath.trim();
+          const SUPERVISOR_CONF = `/etc/supervisor/conf.d/${name}.conf`;
+          await fs.writeFile(
+            SUPERVISOR_CONF,
+            `[program:pb-${name}]
+command=${pbBinary} serve --dir=${instanceDir} --http=127.0.0.1:${instanceData.port}
+directory=${instanceDir}
+autostart=true
+autorestart=true
+startretries=3
+stderr_logfile=/var/log/multipb/${name}.err.log
+stdout_logfile=/var/log/multipb/${name}.log
+stderr_logfile_maxbytes=10MB
+stdout_logfile_maxbytes=10MB
+stderr_logfile_backups=3
+stdout_logfile_backups=3
+user=root
+environment=HOME="/root"${instanceData.memory ? `,GOMEMLIMIT="${instanceData.memory}"` : ""}
+`,
+          );
+          await execAsync(
+            "supervisorctl -c /etc/supervisor/supervisord.conf -s unix:///var/run/supervisor.sock reread",
+          );
+          await execAsync(
+            "supervisorctl -c /etc/supervisor/supervisord.conf -s unix:///var/run/supervisor.sock update",
+          );
+        } catch (e) {
+          console.error("Failed to update supervisord:", e.message);
+        }
+      }
+      const details = await getInstanceDetails(name, manifest[name]);
+      return sendJson(200, { success: true, ...manifest[name], ...details });
     }
 
     // GET /api/instances/:name/history

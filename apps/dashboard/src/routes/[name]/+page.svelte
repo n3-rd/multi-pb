@@ -8,6 +8,12 @@
 	let loading = true;
 	let error: string | null = null;
 	let activeTab = 'overview';
+
+	// Settings
+	let showSettingsModal = false;
+	let settingsSizeLimit = '';
+	let settingsMemory = '';
+	let savingSettings = false;
 	let actionLoading = '';
 
 	// Backups
@@ -172,6 +178,34 @@
 		showVersionModal = true;
 	}
 
+	function openSettingsModal() {
+		settingsSizeLimit = instance?.sizeLimit ?? '';
+		settingsMemory = instance?.memory ?? '';
+		showSettingsModal = true;
+	}
+
+	async function saveSettings() {
+		savingSettings = true;
+		try {
+			const res = await apiFetch(`/instances/${instanceName}/settings`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					sizeLimit: settingsSizeLimit.trim() || undefined,
+					memory: settingsMemory.trim() || undefined
+				})
+			});
+			const result = await res.json();
+			if (!res.ok) throw new Error(result.error || 'Failed to save settings');
+			instance = { ...instance, ...result };
+			showSettingsModal = false;
+		} catch (e) {
+			error = e.message;
+		} finally {
+			savingSettings = false;
+		}
+	}
+
 	onMount(() => {
 		fetchInstance();
 	});
@@ -267,7 +301,10 @@
 					</div>
 					<div class="bg-[#111] p-5 rounded-xl border border-gray-800/50">
 						<p class="text-gray-500 text-xs font-medium uppercase tracking-wide mb-1">Data Size</p>
-						<p class="text-lg font-semibold text-white">{instance.size}</p>
+						<p class="text-lg font-semibold {instance.overQuota ? 'text-orange-400' : 'text-white'}">{instance.size}{instance.sizeLimit ? ` / ${instance.sizeLimit}` : ''}</p>
+						{#if instance.overQuota}
+							<p class="text-xs text-orange-400 mt-1">Over size limit</p>
+						{/if}
 					</div>
 					<div class="bg-[#111] p-5 rounded-xl border border-gray-800/50">
 						<p class="text-gray-500 text-xs font-medium uppercase tracking-wide mb-1">Backups</p>
@@ -332,6 +369,24 @@
 							<div class="flex justify-between py-2 border-b border-gray-800/50">
 								<dt class="text-gray-500">Created</dt>
 								<dd class="text-white">{formatDate(instance.created)}</dd>
+							</div>
+							<div class="flex justify-between py-2 border-b border-gray-800/50">
+								<dt class="text-gray-500">Size Limit</dt>
+								<dd class="flex items-center gap-2">
+									<span class="text-white font-mono">{instance.sizeLimit || '—'}</span>
+									<button on:click={openSettingsModal} class="text-xs px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded transition-all">
+										{instance.sizeLimit ? 'Edit' : 'Set'}
+									</button>
+								</dd>
+							</div>
+							<div class="flex justify-between py-2 border-b border-gray-800/50">
+								<dt class="text-gray-500">Memory Limit</dt>
+								<dd class="flex items-center gap-2">
+									<span class="text-white font-mono">{instance.memory || '—'}</span>
+									<button on:click={openSettingsModal} class="text-xs px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded transition-all">
+										Edit
+									</button>
+								</dd>
 							</div>
 							<div class="flex justify-between py-2 border-b border-gray-800/50">
 								<dt class="text-gray-500">URL Path</dt>
@@ -451,6 +506,50 @@
 				</button>
 				<button on:click={upgradeInstance} disabled={upgrading || !selectedUpgradeVersion || selectedUpgradeVersion === instance?.version} class="flex-1 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg font-semibold transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed">
 					{upgrading ? 'Upgrading...' : 'Upgrade'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Settings Modal -->
+{#if showSettingsModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" on:click|self={() => showSettingsModal = false}>
+		<div class="bg-[#111] rounded-2xl p-6 w-full max-w-md border border-gray-800">
+			<h2 class="text-xl font-bold text-white mb-5">Instance Settings</h2>
+
+			<div class="space-y-4 mb-6">
+				<div>
+					<label for="settings-size-limit" class="block text-xs font-medium text-gray-500 uppercase mb-2">Database Size Limit</label>
+					<input
+						id="settings-size-limit"
+						type="text"
+						bind:value={settingsSizeLimit}
+						placeholder="e.g. 500MB, 1GB, 1GiB"
+						class="w-full bg-[#0a0a0a] border border-gray-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-emerald-500/50 transition-all text-white placeholder-gray-600 text-sm"
+					/>
+					<p class="text-xs text-gray-600 mt-1">Leave empty for no limit. Alerts when exceeded.</p>
+				</div>
+				<div>
+					<label for="settings-memory" class="block text-xs font-medium text-gray-500 uppercase mb-2">Memory Limit (GOMEMLIMIT)</label>
+					<input
+						id="settings-memory"
+						type="text"
+						bind:value={settingsMemory}
+						placeholder="e.g. 128MB, 512MB, 1GiB"
+						class="w-full bg-[#0a0a0a] border border-gray-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-emerald-500/50 transition-all text-white placeholder-gray-600 text-sm"
+					/>
+					<p class="text-xs text-gray-600 mt-1">Restarts instance to apply.</p>
+				</div>
+			</div>
+
+			<div class="flex gap-3">
+				<button on:click={() => showSettingsModal = false} class="flex-1 px-4 py-2.5 border border-gray-700 rounded-lg font-medium text-gray-400 hover:bg-gray-800/50 transition-all text-sm">
+					Cancel
+				</button>
+				<button on:click={saveSettings} disabled={savingSettings} class="flex-1 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg font-semibold transition-all text-sm disabled:opacity-50">
+					{savingSettings ? 'Saving...' : 'Save'}
 				</button>
 			</div>
 		</div>
