@@ -22,8 +22,11 @@ add-instance.sh <name>
 # With admin credentials
 add-instance.sh myapp --email admin@example.com --password secret123
 
-# Set memory limit (Supports format: 512MB, 1GiB, etc.)
+# Set memory limit (512MB, 1GiB, etc.)
 add-instance.sh myapp --memory 512MB
+
+# Set database size limit (alerts when exceeded)
+add-instance.sh myapp --size-limit 500MB
 ```
 
 ### `list-instances.sh`

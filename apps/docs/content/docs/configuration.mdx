@@ -62,6 +62,18 @@ When a token is configured:
 
 ## Resource Limits
 
-You can limit memory usage per instance using the `memory` parameter during creation (CLI or API). This sets `GOMEMLIMIT` for the PocketBase process.
+### Memory Limit
+
+You can limit memory usage per instance using the `memory` parameter during creation (CLI or API) or via instance settings. This sets `GOMEMLIMIT` for the PocketBase process.
 
 Examples: `128MB`, `512MB`, `1GiB`.
+
+### Database Size Limit
+
+You can set a per-instance size limit for the database/data directory. When exceeded, a notification is sent (if webhook is configured) and the dashboard shows an "Over limit" badge.
+
+- **CLI**: `add-instance.sh myapp --size-limit 500MB`
+- **API**: Include `sizeLimit` in `POST /instances` body or use `PATCH /instances/:name/settings`
+- **Dashboard**: Instance page → Instance Info → Size Limit → Set/Edit
+
+Format: `500MB`, `1GB`, `1GiB`, etc. Leave empty for no limit. This is a monitoring/alerting limit; it does not block writes.
